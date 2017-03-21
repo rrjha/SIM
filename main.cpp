@@ -4,9 +4,22 @@
 
 #define uncompressedfile "original.txt"
 #define MAX_DICT_SIZE 16
+#define MAX_BITS 32
 
 typedef unsigned int uint32;
 typedef int int32;
+typedef unsigned char uint8;
+
+enum enoding_scheme {
+    EORIG = 0,
+    ERLE,
+    EBITMASK,
+    EONEMISMATCH,
+    ETWOMISMATCH,
+    EFOURMISMATCH,
+    ETWOMISANY,
+    EDIRECT
+};
 
 struct node {
     uint32 freq;
@@ -130,7 +143,7 @@ void create_dictionary(FILE *fp) {
     struct node *frequencylist = NULL;
     struct node *tempnode = NULL;
 	char line[50];
-	int i;
+	uint32 i;
 
 
     while (fgets(line, sizeof(line), fp)) {
@@ -171,6 +184,35 @@ void create_dictionary(FILE *fp) {
     deleteallnodes(&frequencylist);
 }
 
+void write_to_compressed_file(uint32 pdata) {
+}
+
+void encode_direct_match(uint32 *pdata, int32 *bitptr) {
+    uint32 i=0;
+    uint32 code = (EDIRECT << 4) & 0x7F, spillover;
+    int32 shift = *bitptr;
+
+    for(i=0; (i < dict_size) && dict[i] != *pdata; i++);
+
+    if(i<dict_size) {
+        //data found - encode
+        code |= (i&0xF);
+        spillover = code; //save code so that we can write spill overs
+        shift -= 7;
+        code = (shift > 0) ? code << shift : (code >> (0-shift))&(~(~0 << *bitptr));
+        *pdata |= code;
+        if(shift <= 0) {
+            // Buffer full - flush and realign the bit pointer
+            write_to_compressed_file(*pdata);
+            *pdata = 0;
+            shift += MAX_BITS;
+            code = spillover << shift; // check if spillover needs to be truncated - may not be as shifts to beginning take care of it
+            *pdata |= code;
+        }
+        *bitptr = shift;
+    }
+}
+
 int main() {
 	FILE *fin = fopen (uncompressedfile, "r");
 
@@ -181,6 +223,8 @@ int main() {
 
     /* Create the dictionary */
     create_dictionary(fin);
+
+    rewind(fin);
 
     fclose(fin);
 

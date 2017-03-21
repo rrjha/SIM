@@ -3,6 +3,10 @@
 #include <string.h>
 
 #define uncompressedfile "original.txt"
+#define compressedfile "compressed.txt"
+#define coutfile "cout.txt"
+#define doutfile "dout.txt"
+
 #define MAX_DICT_SIZE 16
 #define MAX_BITS 32
 
@@ -153,7 +157,7 @@ void create_dictionary(FILE *fp) {
         //And remove the trailing \r for dos format input files
         if (line[strlen(line)-1] == '\r')
             line[strlen(line)-1] = '\0';
-        if(strlen(line) == 32) //valid 32 bit-char string
+        if(strlen(line) == MAX_BITS) //valid 32 bit-char string
             addnode(&frequencylist, bstr_to_int(line));
         else //Invalid 32-bit string
             printf("Invalid string %s\n", line);
@@ -184,10 +188,11 @@ void create_dictionary(FILE *fp) {
     deleteallnodes(&frequencylist);
 }
 
-void write_to_compressed_file(uint32 pdata) {
+void write_to_compressed_file(uint32 data, FILE *fout) {
+    fprintf(fout, "%u\n", data);
 }
 
-void encode_direct_match(uint32 *pdata, int32 *bitptr) {
+void encode_direct_match(uint32 *pdata, int32 *bitptr, FILE *fout) {
     uint32 i=0;
     uint32 code = (EDIRECT << 4) & 0x7F, spillover;
     int32 shift = *bitptr;
@@ -203,7 +208,7 @@ void encode_direct_match(uint32 *pdata, int32 *bitptr) {
         *pdata |= code;
         if(shift <= 0) {
             // Buffer full - flush and realign the bit pointer
-            write_to_compressed_file(*pdata);
+            write_to_compressed_file(*pdata, fout);
             *pdata = 0;
             shift += MAX_BITS;
             code = spillover << shift; // check if spillover needs to be truncated - may not be as shifts to beginning take care of it
@@ -215,8 +220,12 @@ void encode_direct_match(uint32 *pdata, int32 *bitptr) {
 
 int main() {
 	FILE *fin = fopen (uncompressedfile, "r");
+	FILE *fout = fopen (coutfile, "w");
+ 	char line[50];
+ 	uint32 data=0;
+ 	int32 bitptr = MAX_BITS;
 
-    if (NULL == fin) {
+    if ((NULL == fin) || (NULL == fout)){
         perror("Program encountered error exiting..\n");
         exit(1);
     }
@@ -226,6 +235,22 @@ int main() {
 
     rewind(fin);
 
+    while (fgets(line, sizeof(line), fin)) {
+        //remove the trailing \n
+        if (line[strlen(line)-1] == '\n')
+            line[strlen(line)-1] = '\0';
+        //And remove the trailing \r for dos format input files
+        if (line[strlen(line)-1] == '\r')
+            line[strlen(line)-1] = '\0';
+        if(strlen(line) == MAX_BITS) {//valid 32 bit-char string
+            data = bstr_to_int(line);
+            encode_direct_match(&data, &bitptr, fout);
+        }
+        else //Invalid 32-bit string
+            printf("Invalid string %s\n", line);
+    }
+
+    fclose(fout);
     fclose(fin);
 
     return 0;

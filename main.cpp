@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 #define uncompressedfile "original.txt"
 #define compressedfile "compressed.txt"
@@ -22,7 +23,17 @@ enum enoding_scheme {
     ETWOMISMATCH,
     EFOURMISMATCH,
     ETWOMISANY,
-    EDIRECT
+    EDIRECT,
+    EMAX
+};
+
+// Compression constants
+//const uint32 compParam[EMAX][2] = {{35,}}
+const char *nibble_bit_rep[16] = {
+	[ 0] = "0000", [ 1] = "0001", [ 2] = "0010", [ 3] = "0011",
+	[ 4] = "0100", [ 5] = "0101", [ 6] = "0110", [ 7] = "0111",
+	[ 8] = "1000", [ 9] = "1001", [10] = "1010", [11] = "1011",
+	[12] = "1100", [13] = "1101", [14] = "1110", [15] = "1111"
 };
 
 struct node {
@@ -189,40 +200,100 @@ void create_dictionary(FILE *fp) {
 }
 
 void write_to_compressed_file(uint32 data, FILE *fout) {
-    fprintf(fout, "%u\n", data);
+    int i;
+    char wbuff[MAX_BITS + 1]; //to hold null char as well
+    for (i=7; i>=0; i--)
+        strncpy((wbuff+((7-i)*4)), nibble_bit_rep[((data>>(4*i))&0xF)], 4);
+    wbuff[MAX_BITS] = '\0';
+    fprintf(fout, "%s\n", wbuff);
 }
 
-void encode_direct_match(uint32 *pdata, int32 *bitptr, FILE *fout) {
-    uint32 i=0;
-    uint32 code = (EDIRECT << 4) & 0x7F, spillover;
+void fit_compressed_integer_and_flush(uint32 code, uint8 codelen, uint32 *pdata, int32 *bitptr, FILE *fout) {
     int32 shift = *bitptr;
+    uint32 spillover = code; //save code so that we can write spill overs
+    shift -= 7;
+    code = (shift > 0) ? code << shift : (code >> (0-shift))&(~(~0 << *bitptr));
+    *pdata |= code;
+    if(shift <= 0) {
+        // Buffer full - flush and realign the bit pointer
+        write_to_compressed_file(*pdata, fout);
+        *pdata = 0;
+        shift += MAX_BITS;
+        code = spillover << shift; // check if spillover needs to be truncated - may not be as shifts to beginning take care of it
+        *pdata |= code;
+    }
+    *bitptr = shift;
+}
 
-    for(i=0; (i < dict_size) && dict[i] != *pdata; i++);
+bool encode_direct_match(uint32 currdata, uint32 *pdata, int32 *bitptr, FILE *fout) {
+    uint32 i=0;
+    uint32 code = (EDIRECT << 4) & 0x7F;
+    bool handled = false;
+
+    for(i=0; (i < dict_size) && dict[i] != currdata; i++);
 
     if(i<dict_size) {
         //data found - encode
+        handled = true;
         code |= (i&0xF);
-        spillover = code; //save code so that we can write spill overs
-        shift -= 7;
-        code = (shift > 0) ? code << shift : (code >> (0-shift))&(~(~0 << *bitptr));
-        *pdata |= code;
-        if(shift <= 0) {
-            // Buffer full - flush and realign the bit pointer
-            write_to_compressed_file(*pdata, fout);
-            *pdata = 0;
-            shift += MAX_BITS;
-            code = spillover << shift; // check if spillover needs to be truncated - may not be as shifts to beginning take care of it
-            *pdata |= code;
-        }
-        *bitptr = shift;
+        fit_compressed_integer_and_flush(code, 7, pdata, bitptr, fout);
     }
+    return handled;
+}
+
+bool rle(uint32 currdata, uint32 *pdata, int32 *bitptr, FILE *fout) {
+    static uint32 prevdata, cnt = 0;
+    bool handled = false;
+    uint32 code = (ERLE << 3) & 0x3F;
+
+    if(cnt == 0) {
+        //Compression just started
+        prevdata = currdata;
+        cnt = 1;
+    }
+    else if(prevdata == currdata) {
+        cnt++;
+        handled = true;
+    }
+    else { //cnt > 0 and prevdata != currdata
+        if(cnt > 1) {
+            //Encode prevdata and check flush
+            code |= ((cnt-2) & 7);
+            fit_compressed_integer_and_flush(code, 6, pdata, bitptr, fout);
+        }
+        prevdata = currdata;
+        cnt = 1;
+    }
+
+    return handled;
+}
+
+bool encode_onemismatch(uint32 currdata, uint32 *pdata, int32 *bitptr, FILE *fout) {
+    uint32 i = 0, code = (EONEMISMATCH << 9) & 0xFFF;
+    bool handled = false;
+    uint32 temp=0;
+    uint8 loc;
+
+    for(i=0; i < dict_size; i++) {
+        temp = dict[i] ^ currdata;
+        if(!(temp & (temp-1))) {
+            loc = MAX_BITS - log2(temp) - 1;
+            code |= (loc << 4);
+            code |= i&0xF;
+            fit_compressed_integer_and_flush(code, 12, pdata, bitptr, fout);
+            handled = true;
+            break;
+        }
+    }
+
+    return handled;
 }
 
 int main() {
 	FILE *fin = fopen (uncompressedfile, "r");
 	FILE *fout = fopen (coutfile, "w");
  	char line[50];
- 	uint32 data=0;
+ 	uint32 data=0, intd=0;
  	int32 bitptr = MAX_BITS;
 
     if ((NULL == fin) || (NULL == fout)){
@@ -244,7 +315,7 @@ int main() {
             line[strlen(line)-1] = '\0';
         if(strlen(line) == MAX_BITS) {//valid 32 bit-char string
             data = bstr_to_int(line);
-            encode_direct_match(&data, &bitptr, fout);
+            encode_direct_match(data, &intd, &bitptr, fout);
         }
         else //Invalid 32-bit string
             printf("Invalid string %s\n", line);

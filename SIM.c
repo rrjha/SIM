@@ -5,6 +5,15 @@
 #include <stdbool.h>
 #include <math.h>
 
+#ifdef DEBUG
+#define DPRITF(fmt, ...) \
+        do { fprintf(stderr, "%s:%d:%s(): " fmt, __FILE__, \
+                                __LINE__, __func__, ##__VA_ARGS__); } while (0)
+#else
+#define DPRINTF(fmt, ...) ((void)0)
+#endif
+
+
 #define uncompressedfile "original.txt"
 #define compressedfile "compressed.txt"
 #define coutfile "cout.txt"
@@ -55,6 +64,7 @@ struct node {
 uint32_t dict[MAX_DICT_SIZE];
 uint32_t dict_size = MAX_DICT_SIZE;
 
+
 void bubbleksort(struct node **freq_list, uint32_t k)
 {
     struct node *outer = *freq_list;
@@ -104,7 +114,7 @@ void printnodes(struct node *freq_list) {
     struct node *curr = freq_list;
 
     while(curr != NULL) {
-        printf("val=%u freq=%u\n", curr->val, curr->freq);
+        DPRINTF("val=%u freq=%u\n", curr->val, curr->freq);
         curr = curr->next;
     }
 }
@@ -181,20 +191,20 @@ void create_dictionary(FILE *fp) {
         if(strlen(line) == MAX_BITS) //valid 32 bit-char string
             addnode(&frequencylist, bstr_to_int(line));
         else //Invalid 32-bit string
-            printf("Invalid string %s\n", line);
+            DPRINTF("Invalid string %s\n", line);
     }
 
 
-    printf("Before\n");
+    DPRINTF("Before\n");
     printnodes(frequencylist);
 
     bubbleksort(&frequencylist, MAX_DICT_SIZE);
 
-    printf("\nAfter\n");
+    DPRINTF("\nAfter\n");
 
     printnodes(frequencylist);
 
-    printf("\n%d nodes\n", MAX_DICT_SIZE);
+    DPRINTF("\n%d nodes\n", MAX_DICT_SIZE);
 
     tempnode = getklastnodes(frequencylist, MAX_DICT_SIZE);
     printnodes(tempnode);
@@ -202,9 +212,9 @@ void create_dictionary(FILE *fp) {
     dict_size = listlength(tempnode);
     populate_dict_from_freq_list(tempnode, dict, dict_size);
 
-    printf("\n\n");
+    DPRINTF("\n\n");
     for(i=0; i < dict_size; i++)
-        printf("dict[%d] = %u\n", i, dict[i]);
+        DPRINTF("dict[%d] = %u\n", i, dict[i]);
 
     deleteallnodes(&frequencylist);
 }
@@ -298,10 +308,6 @@ uint32_t getsetbits (uint32_t num) {
     return setbits;
 }
 
-uint8_t get_first_set_bit_from_lsb(uint32_t num) {
-    return (log2(num & ~(num-1))); //first set bit counting from lsb
-}
-
 uint8_t get_last_set_bit_from_lsb(uint32_t num) {
     uint8_t res = 0;
 
@@ -309,6 +315,15 @@ uint8_t get_last_set_bit_from_lsb(uint32_t num) {
         res++;
     }
     return res;
+}
+
+uint8_t logbase2(uint32_t num) {
+    // Simplistic log implementation for powers of 2
+    return get_last_set_bit_from_lsb(num);
+}
+
+uint8_t get_first_set_bit_from_lsb(uint32_t num) {
+    return (logbase2(num & ~(num-1))); //first set bit counting from lsb
 }
 
 bool is_consecutive_ones(uint32_t num, uint8_t numones, uint8_t *startloc) {
@@ -441,7 +456,7 @@ void encodefn_dispatcher(FILE *fin, FILE *fout) {
             }
         }
         else //Invalid 32-bit string
-            printf("Invalid string %s\n", line);
+            DPRINTF("Invalid string %s\n", line);
     }
 
     // Flush any remaining bytes in intermediate write buffer
@@ -493,7 +508,7 @@ bool readnextword(FILE *fp, uint32_t *pdata) {
         } else if((strlen(line) == MAX_BITS)) //valid 32 bit-char string
             *pdata = bstr_to_int(line);
         else
-            printf("Error: Invalid line - %s\n", line); //Should we set endof read - Any way this should never happen
+            DPRINTF("Error: Invalid line - %s\n", line); //Should we set endof read - Any way this should never happen
     }
     return endofread;
 }

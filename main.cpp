@@ -12,6 +12,7 @@
 
 #define MAX_DICT_SIZE 16
 #define MAX_BITS 32
+#define RLE_THRESHOLD 9
 
 typedef bool (*compression_func)(uint32_t currdata, uint32_t *pdata, int32_t *bitptr, FILE *fout);
 
@@ -211,7 +212,7 @@ void write_to_compressed_file(uint32_t data, FILE *fout) {
 void fit_compressed_integer_and_flush(uint32_t code, uint8_t codelen, uint32_t *pdata, int32_t *bitptr, FILE *fout) {
     int32_t shift = *bitptr;
     uint32_t spillover = code; //save code so that we can write spill overs
-    shift -= 7;
+    shift -= codelen;
     code = (shift > 0) ? code << shift : (code >> (0-shift))&(~(~0 << *bitptr));
     *pdata |= code;
     if(shift <= 0) {
@@ -219,8 +220,10 @@ void fit_compressed_integer_and_flush(uint32_t code, uint8_t codelen, uint32_t *
         write_to_compressed_file(*pdata, fout);
         *pdata = 0;
         shift += MAX_BITS;
-        code = spillover << shift; // check if spillover needs to be truncated - may not be as shifts to beginning take care of it
-        *pdata |= code;
+        if (shift < MAX_BITS) {
+            code = spillover << shift;
+            *pdata |= code;
+        }
     }
     *bitptr = shift;
 }
@@ -252,8 +255,16 @@ bool rle(uint32_t currdata, uint32_t *pdata, int32_t *bitptr, FILE *fout) {
         cnt = 1;
     }
     else if(prevdata == currdata) {
-        cnt++;
-        handled = true;
+        if(cnt < RLE_THRESHOLD) {
+            cnt++;
+            handled = true;
+        }
+        else {
+            //Encode data and check flush
+            code |= ((cnt-2) & 7);
+            fit_compressed_integer_and_flush(code, 6, pdata, bitptr, fout);
+            cnt = 1;
+        }
     }
     else { //cnt > 0 and prevdata != currdata
         if(cnt > 1) {
@@ -312,8 +323,11 @@ bool bitmask_encoding(uint32_t currdata, uint32_t *pdata, int32_t *bitptr, FILE 
         last = get_last_set_bit_from_lsb(dict[i]^currdata);
         if((last - first) <= 3) {
             //Match found
+            if(last >= 3)
+                mask = ((dict[i]^currdata) >> (last-3)) & 0xF; //bitmask field is 4 bit from last set bit so shift left if last is at least 4 bit away from LSB
+            else
+                mask = ((dict[i]^currdata) << (3-last)) & 0xF; // last is less than 4 bit away from LSB then shift left to make it 4 bit
             last = MAX_BITS - last -1; //location in code is from right so adjust
-            mask = ((dict[i]^currdata) >> first) & 0xF; //bitmask field is 4 bit so shift and mask it
             code = (code | (last << 8) | (mask << 4) |(i & 0xF));
             fit_compressed_integer_and_flush(code, 16, pdata, bitptr, fout);
             handled = true;
@@ -455,6 +469,11 @@ int main() {
         }
         else //Invalid 32-bit string
             printf("Invalid string %s\n", line);
+    }
+
+    // Flush any remaining bytes in intermediate write buffer
+    if(bitptr != 0) {
+        fit_compressed_integer_and_flush(0, bitptr, &intd, &bitptr, fout);
     }
     fprintf(fout, "%s\n", "xxxx");
     dump_dictionary_to_output(fout);

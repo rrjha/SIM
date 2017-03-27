@@ -397,7 +397,7 @@ bool encodeNmismatch(uint32_t currdata, uint8_t nummismatch, uint32_t *pdata, ui
     uint32_t i=0;
     uint8_t startloc = 0;
     bool handled = false;
-    uint32_t code = ((EONEMISMATCH + (nummismatch << 1)) << 9) & codeparam[EONEMISMATCH].mask;
+    uint32_t code = ((EONEMISMATCH + (nummismatch >> 1)) << 9) & codeparam[EONEMISMATCH].mask;
 
     for(i=0; i< dict_size; i++) {
         if(is_consecutive_ones(dict[i]^currdata, nummismatch, &startloc)) {

@@ -1,3 +1,5 @@
+/* On my honor, I have neither given nor received unauthorized aid on this assignment */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -63,6 +65,7 @@ struct node {
 
 uint32_t dict[MAX_DICT_SIZE];
 uint32_t dict_size = MAX_DICT_SIZE;
+uint32_t prevdata, cnt = 0;
 
 
 void bubbleksort(struct node **freq_list, uint32_t k)
@@ -263,8 +266,16 @@ bool encode_direct_match(uint32_t currdata, uint32_t *pdata, uint8_t *bitptr, FI
     return handled;
 }
 
+void rle_flush_before_exit(uint32_t *pdata, uint8_t *bitptr, FILE *fout) {
+    uint32_t code = (ERLE << 3) & codeparam[ERLE].mask;
+    if(cnt > 1) {
+        //Encode prevdata and check flush
+        code |= ((cnt-2) & 7);
+        fit_compressed_integer_and_flush(code, codeparam[ERLE].len, pdata, bitptr, fout);
+    }
+}
+
 bool rle(uint32_t currdata, uint32_t *pdata, uint8_t *bitptr, FILE *fout) {
-    static uint32_t prevdata, cnt = 0;
     bool handled = false;
     uint32_t code = (ERLE << 3) & codeparam[ERLE].mask;
 
@@ -459,12 +470,17 @@ void encodefn_dispatcher(FILE *fin, FILE *fout) {
             DPRINTF("Invalid string %s\n", line);
     }
 
+    // Check if we need to flush RLE
+    rle_flush_before_exit(&intd, &bitptr, fout);
+
     // Flush any remaining bytes in intermediate write buffer
-    if(bitptr != 0) {
+    if((bitptr > 0) && (bitptr < MAX_BITS)) {
         fit_compressed_integer_and_flush(0, bitptr, &intd, &bitptr, fout);
     }
-    fprintf(fout, "%s\n", COMPRESSION_END_MARKER);
-    dump_dictionary_to_output(fout);
+    if(dict_size > 0) {
+        fprintf(fout, "%s\n", COMPRESSION_END_MARKER);
+        dump_dictionary_to_output(fout);
+    }
 }
 
 /******************************************** Decompression code ******************************************/
@@ -510,6 +526,8 @@ bool readnextword(FILE *fp, uint32_t *pdata) {
         else
             DPRINTF("Error: Invalid line - %s\n", line); //Should we set endof read - Any way this should never happen
     }
+    else
+        endofread = true; //unlikely case if we don't have marker but reached end of file
     return endofread;
 }
 

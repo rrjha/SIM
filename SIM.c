@@ -535,11 +535,15 @@ bool readnextword(FILE *fp, uint32_t *pdata) {
 bool read_data_from_offset(FILE *fin, uint32_t *pdata, uint8_t *bitptr, uint8_t len, uint32_t *dataread) {
     int8_t shift = *bitptr - len;
     bool endreached = false;
-    if(shift > 0) {
+    static bool deferend = false;
+
+    if(deferend)
+        endreached = true;
+    else if(shift > 0) {
         *dataread = ((*pdata >> shift) & (~(~0 << len)));
         *bitptr = shift;
     }
-    else {
+    else if (shift < 0) {
         /* First copy from bitptr-1 to end of curr data */
         *dataread = ((*pdata) & (~(~0 << (*bitptr))));
         if(!readnextword(fin, pdata)) {
@@ -549,6 +553,16 @@ bool read_data_from_offset(FILE *fin, uint32_t *pdata, uint8_t *bitptr, uint8_t 
         }
         else //we reached end
             endreached = true;
+    }
+    else {
+        /* First copy from bitptr-1 to end of curr data */
+        *dataread = ((*pdata) & (~(~0 << (*bitptr))));
+        if(!readnextword(fin, pdata)) {
+            *bitptr = MAX_BITS + shift;
+        }
+        else
+            // we reached end but we need to continue decode of current so defer till next iteration
+            deferend = true;
     }
 
     return endreached;

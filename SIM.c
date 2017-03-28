@@ -580,7 +580,7 @@ bool decode_rle(uint32_t *pdata, uint8_t *bitptr, FILE *fin, uint32_t *decodedda
 
 bool decode_bitmask(uint32_t *pdata, uint8_t *bitptr, FILE *fin, uint32_t *decodeddata) {
     uint32_t intd, mask;
-    uint8_t shift;
+    int8_t shift;
     bool endofdecode = read_data_from_offset(fin, pdata, bitptr, (codeparam[EBITMASK].len - 3), &intd);
     if(!endofdecode) {
         mask = (intd >> 4) & 0xF;
@@ -593,7 +593,7 @@ bool decode_bitmask(uint32_t *pdata, uint8_t *bitptr, FILE *fin, uint32_t *decod
 
 bool decode1mismatch(uint32_t *pdata, uint8_t *bitptr, FILE *fin, uint32_t *decodeddata) {
     uint32_t intd, mask;
-    uint8_t shift;
+    int8_t shift;
     bool endofdecode = read_data_from_offset(fin, pdata, bitptr, (codeparam[EONEMISMATCH].len - 3), &intd);
     if(!endofdecode) {
         shift = MAX_BITS - ((intd >> 4) & 0x1F) - 1;
@@ -605,7 +605,7 @@ bool decode1mismatch(uint32_t *pdata, uint8_t *bitptr, FILE *fin, uint32_t *deco
 
 bool decode2mismatch(uint32_t *pdata, uint8_t *bitptr, FILE *fin, uint32_t *decodeddata) {
     uint32_t intd, mask;
-    uint8_t shift;
+    int8_t shift;
     bool endofdecode = read_data_from_offset(fin, pdata, bitptr, (codeparam[ETWOMISMATCH].len - 3), &intd);
     if(!endofdecode) {
         shift = MAX_BITS - ((intd >> 4) & 0x1F) - 2;
@@ -617,7 +617,7 @@ bool decode2mismatch(uint32_t *pdata, uint8_t *bitptr, FILE *fin, uint32_t *deco
 
 bool decode4mismatch(uint32_t *pdata, uint8_t *bitptr, FILE *fin, uint32_t *decodeddata) {
     uint32_t intd, mask;
-    uint8_t shift;
+    int8_t shift;
     bool endofdecode = read_data_from_offset(fin, pdata, bitptr, (codeparam[EFOURMISMATCH].len - 3), &intd);
     if(!endofdecode) {
         shift = MAX_BITS - ((intd >> 4) & 0x1F) - 4;
@@ -629,7 +629,7 @@ bool decode4mismatch(uint32_t *pdata, uint8_t *bitptr, FILE *fin, uint32_t *deco
 
 bool decode_anytwo_mismatch(uint32_t *pdata, uint8_t *bitptr, FILE *fin, uint32_t *decodeddata) {
     uint32_t intd, mask1, mask2, mask;
-    uint8_t shift1, shift2;
+    int8_t shift1, shift2;
     bool endofdecode = read_data_from_offset(fin, pdata, bitptr, (codeparam[EANYTWOMISMATCH].len - 3), &intd);
     if(!endofdecode) {
         shift1 = MAX_BITS - ((intd >> 4) & 0x1F) - 1;

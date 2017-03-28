@@ -341,7 +341,8 @@ bool is_consecutive_ones(uint32_t num, uint8_t numones, uint8_t *startloc) {
     bool retval = false;
     *startloc = get_first_set_bit_from_lsb(num); //first set bit counting from lsb
 
-    if(num == (uint32_t)((~((~0) << numones)) << (*startloc))) {
+    if((num == (uint32_t)((~((~0) << numones)) << (*startloc))) &&
+        ((*startloc + numones) <= MAX_BITS)) {
         retval = true;
         *startloc = MAX_BITS - *startloc - numones;
     }

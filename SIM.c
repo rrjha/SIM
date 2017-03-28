@@ -351,17 +351,18 @@ bool is_consecutive_ones(uint32_t num, uint8_t numones, uint8_t *startloc) {
 
 bool bitmask_encoding(uint32_t currdata, uint32_t *pdata, uint8_t *bitptr, FILE *fout) {
     bool handled = false;
-    uint32_t i = 0, code = (EBITMASK << 13) & codeparam[EBITMASK].mask;
+    uint32_t i = 0, code = (EBITMASK << 13) & codeparam[EBITMASK].mask, temp;
     uint8_t first=0, last=0, mask;
     for(i=0; i< dict_size; i++) {
-        first = get_first_set_bit_from_lsb(dict[i]^currdata);
-        last = get_last_set_bit_from_lsb(dict[i]^currdata);
+        temp = dict[i]^currdata;
+        first = get_first_set_bit_from_lsb(temp);
+        last = get_last_set_bit_from_lsb(temp);
         if((last - first) <= 3) {
             //Match found
             if(last >= 3)
-                mask = ((dict[i]^currdata) >> (last-3)) & 0xF; //bitmask field is 4 bit from last set bit so shift left if last is at least 4 bit away from LSB
+                mask = (temp >> (last-3)) & 0xF; //bitmask field is 4 bit from last set bit so shift left if last is at least 4 bit away from LSB
             else
-                mask = ((dict[i]^currdata) << (3-last)) & 0xF; // last is less than 4 bit away from LSB then shift left to make it 4 bit
+                mask = (temp << (3-last)) & 0xF; // last is less than 4 bit away from LSB then shift left to make it 4 bit
             last = MAX_BITS - last -1; //location in code is from right so adjust
             code = (code | (last << 8) | (mask << 4) |(i & 0xF));
             fit_compressed_integer_and_flush(code, codeparam[EBITMASK].len, pdata, bitptr, fout);

@@ -8,7 +8,7 @@
 #include <math.h>
 
 #ifdef DEBUG
-#define DPRITF(fmt, ...) \
+#define DPRINTF(fmt, ...) \
         do { fprintf(stderr, "%s:%d:%s(): " fmt, __FILE__, \
                                 __LINE__, __func__, ##__VA_ARGS__); } while (0)
 #else

@@ -21,12 +21,14 @@
 #define coutfile "cout.txt"
 #define doutfile "dout.txt"
 
+#define referencefile "reference.txt"
+
 #define MAX_DICT_SIZE 16
 #define MAX_BITS 32
 #define RLE_THRESHOLD 9
 #define COMPRESSION_END_MARKER "xxxx"
 
-typedef bool (*encodefn)(uint32_t, uint32_t *, uint8_t *, FILE *);
+typedef bool (*encodefn)(uint32_t, uint32_t *, uint8_t *, FILE *, FILE *);
 typedef bool (*decodefn) (uint32_t *, uint8_t *, FILE *, uint32_t *);
 
 enum enoding_scheme {
@@ -231,13 +233,22 @@ void write_to_file(uint32_t data, FILE *fout) {
     fprintf(fout, "%s\n", wbuff);
 }
 
-void fit_compressed_integer_and_flush(uint32_t code, uint8_t codelen, uint32_t *pdata, uint8_t *bitptr, FILE *fout) {
+void fit_compressed_integer_and_flush(uint32_t code, uint8_t codelen, uint32_t *pdata, uint8_t *bitptr, FILE *fout, FILE *fdbg) {
     int8_t shift = *bitptr;
     uint32_t spillover = code; //save code so that we can write spill overs
+
+    if(fdbg)
+        //dump code to debug file
+        write_to_file(code, fdbg);
     shift -= codelen;
-    code = (shift > 0) ? code << shift : (code >> (0-shift))&(~(~0 << *bitptr));
-    *pdata |= code;
-    if(shift <= 0) {
+    if(shift > 0) {
+        code = code << shift;
+        *pdata |= code;
+    }
+    else {
+        if(*bitptr < MAX_BITS) //Note if this is false then bitptr is 32 and still shift is 0 so we want all so don't need shift
+            code = (code >> (0-shift))&(~(~0 << *bitptr));
+        *pdata |= code;
         // Buffer full - flush and realign the bit pointer
         write_to_file(*pdata, fout);
         *pdata = 0;
@@ -250,7 +261,7 @@ void fit_compressed_integer_and_flush(uint32_t code, uint8_t codelen, uint32_t *
     *bitptr = shift;
 }
 
-bool encode_direct_match(uint32_t currdata, uint32_t *pdata, uint8_t *bitptr, FILE *fout) {
+bool encode_direct_match(uint32_t currdata, uint32_t *pdata, uint8_t *bitptr, FILE *fout, FILE *fdbg) {
     uint32_t i=0;
     uint32_t code = (EDIRECT << 4) & codeparam[EDIRECT].mask;
     bool handled = false;
@@ -261,21 +272,21 @@ bool encode_direct_match(uint32_t currdata, uint32_t *pdata, uint8_t *bitptr, FI
         //data found - encode
         handled = true;
         code |= (i&0xF);
-        fit_compressed_integer_and_flush(code, codeparam[EDIRECT].len, pdata, bitptr, fout);
+        fit_compressed_integer_and_flush(code, codeparam[EDIRECT].len, pdata, bitptr, fout, fdbg);
     }
     return handled;
 }
 
-void rle_flush_before_exit(uint32_t *pdata, uint8_t *bitptr, FILE *fout) {
+void rle_flush_before_exit(uint32_t *pdata, uint8_t *bitptr, FILE *fout, FILE *fdbg) {
     uint32_t code = (ERLE << 3) & codeparam[ERLE].mask;
     if(cnt > 1) {
         //Encode prevdata and check flush
         code |= ((cnt-2) & 7);
-        fit_compressed_integer_and_flush(code, codeparam[ERLE].len, pdata, bitptr, fout);
+        fit_compressed_integer_and_flush(code, codeparam[ERLE].len, pdata, bitptr, fout, fdbg);
     }
 }
 
-bool rle(uint32_t currdata, uint32_t *pdata, uint8_t *bitptr, FILE *fout) {
+bool rle(uint32_t currdata, uint32_t *pdata, uint8_t *bitptr, FILE *fout, FILE *fdbg) {
     bool handled = false;
     uint32_t code = (ERLE << 3) & codeparam[ERLE].mask;
 
@@ -292,7 +303,7 @@ bool rle(uint32_t currdata, uint32_t *pdata, uint8_t *bitptr, FILE *fout) {
         else {
             //Encode data and check flush
             code |= ((cnt-2) & 7);
-            fit_compressed_integer_and_flush(code, codeparam[ERLE].len, pdata, bitptr, fout);
+            fit_compressed_integer_and_flush(code, codeparam[ERLE].len, pdata, bitptr, fout, fdbg);
             cnt = 1;
         }
     }
@@ -300,7 +311,7 @@ bool rle(uint32_t currdata, uint32_t *pdata, uint8_t *bitptr, FILE *fout) {
         if(cnt > 1) {
             //Encode prevdata and check flush
             code |= ((cnt-2) & 7);
-            fit_compressed_integer_and_flush(code, codeparam[ERLE].len, pdata, bitptr, fout);
+            fit_compressed_integer_and_flush(code, codeparam[ERLE].len, pdata, bitptr, fout, fdbg);
         }
         prevdata = currdata;
         cnt = 1;
@@ -350,7 +361,7 @@ bool is_consecutive_ones(uint32_t num, uint8_t numones, uint8_t *startloc) {
     return retval;
 }
 
-bool bitmask_encoding(uint32_t currdata, uint32_t *pdata, uint8_t *bitptr, FILE *fout) {
+bool bitmask_encoding(uint32_t currdata, uint32_t *pdata, uint8_t *bitptr, FILE *fout, FILE *fdbg) {
     bool handled = false;
     uint32_t i = 0, code = (EBITMASK << 13) & codeparam[EBITMASK].mask, temp;
     uint8_t first=0, last=0, mask;
@@ -366,7 +377,7 @@ bool bitmask_encoding(uint32_t currdata, uint32_t *pdata, uint8_t *bitptr, FILE 
                 mask = (temp << (3-last)) & 0xF; // last is less than 4 bit away from LSB then shift left to make it 4 bit
             last = MAX_BITS - last -1; //location in code is from right so adjust
             code = (code | (last << 8) | (mask << 4) |(i & 0xF));
-            fit_compressed_integer_and_flush(code, codeparam[EBITMASK].len, pdata, bitptr, fout);
+            fit_compressed_integer_and_flush(code, codeparam[EBITMASK].len, pdata, bitptr, fout, fdbg);
             handled = true;
             break;
         }
@@ -375,7 +386,7 @@ bool bitmask_encoding(uint32_t currdata, uint32_t *pdata, uint8_t *bitptr, FILE 
     return handled;
 }
 
-bool anytwo_mismatch_encoding(uint32_t currdata, uint32_t *pdata, uint8_t *bitptr, FILE *fout) {
+bool anytwo_mismatch_encoding(uint32_t currdata, uint32_t *pdata, uint8_t *bitptr, FILE *fout, FILE *fdbg) {
     bool handled = false;
     uint32_t i = 0, code = (EANYTWOMISMATCH << 14) & codeparam[EANYTWOMISMATCH].mask;
     uint8_t first=0, last=0;
@@ -387,7 +398,7 @@ bool anytwo_mismatch_encoding(uint32_t currdata, uint32_t *pdata, uint8_t *bitpt
             first = MAX_BITS - get_first_set_bit_from_lsb(dict[i]^currdata) - 1; //adjust for bit addressing from right, MSB
             last = MAX_BITS - get_last_set_bit_from_lsb(dict[i]^currdata) - 1; //adjust for bit addressing from right, MSB
             code = (code | (last << 9) | (first << 4) |(i & 0xF));
-            fit_compressed_integer_and_flush(code, codeparam[EANYTWOMISMATCH].len, pdata, bitptr, fout);
+            fit_compressed_integer_and_flush(code, codeparam[EANYTWOMISMATCH].len, pdata, bitptr, fout, fdbg);
             handled = true;
             break;
         }
@@ -395,7 +406,7 @@ bool anytwo_mismatch_encoding(uint32_t currdata, uint32_t *pdata, uint8_t *bitpt
     return handled;
 }
 
-bool encodeNmismatch(uint32_t currdata, uint8_t nummismatch, uint32_t *pdata, uint8_t *bitptr, FILE *fout) {
+bool encodeNmismatch(uint32_t currdata, uint8_t nummismatch, uint32_t *pdata, uint8_t *bitptr, FILE *fout, FILE *fdbg) {
     uint32_t i=0;
     uint8_t startloc = 0;
     bool handled = false;
@@ -405,7 +416,7 @@ bool encodeNmismatch(uint32_t currdata, uint8_t nummismatch, uint32_t *pdata, ui
         if(is_consecutive_ones(dict[i]^currdata, nummismatch, &startloc)) {
             //Match found
             code = (code | (startloc << 4) | (i & 0xF));
-            fit_compressed_integer_and_flush(code, codeparam[EONEMISMATCH].len, pdata, bitptr, fout);
+            fit_compressed_integer_and_flush(code, codeparam[EONEMISMATCH].len, pdata, bitptr, fout, fdbg);
             handled = true;
             break;
         }
@@ -414,26 +425,26 @@ bool encodeNmismatch(uint32_t currdata, uint8_t nummismatch, uint32_t *pdata, ui
     return handled;
 }
 
-bool encode1mismatch(uint32_t currdata, uint32_t *pdata, uint8_t *bitptr, FILE *fout) {
-    return encodeNmismatch(currdata, 1, pdata, bitptr, fout);
+bool encode1mismatch(uint32_t currdata, uint32_t *pdata, uint8_t *bitptr, FILE *fout, FILE *fdbg) {
+    return encodeNmismatch(currdata, 1, pdata, bitptr, fout, fdbg);
 }
 
-bool encode2mismatch(uint32_t currdata, uint32_t *pdata, uint8_t *bitptr, FILE *fout) {
-    return encodeNmismatch(currdata, 2, pdata, bitptr, fout);
+bool encode2mismatch(uint32_t currdata, uint32_t *pdata, uint8_t *bitptr, FILE *fout, FILE *fdbg) {
+    return encodeNmismatch(currdata, 2, pdata, bitptr, fout, fdbg);
 }
 
-bool encode4mismatch(uint32_t currdata, uint32_t *pdata, uint8_t *bitptr, FILE *fout) {
-    return encodeNmismatch(currdata, 4, pdata, bitptr, fout);
+bool encode4mismatch(uint32_t currdata, uint32_t *pdata, uint8_t *bitptr, FILE *fout, FILE *fdbg) {
+    return encodeNmismatch(currdata, 4, pdata, bitptr, fout, fdbg);
 }
 
-bool default_encoding(uint32_t currdata, uint32_t *pdata, uint8_t *bitptr, FILE *fout) {
+bool default_encoding(uint32_t currdata, uint32_t *pdata, uint8_t *bitptr, FILE *fout, FILE *fdbg) {
     /* There is no encoding scheme to encode this data so we need to just add this data as it is
      * but we also need to add a 3 bit code for this. However our intermediate encoding buffer is
      * just 32 bit. So, to encode this 35 bit data, use two passes one with 3 bit code and other
      * with 32 bit original data as is */
      uint32_t code1 = EORIG, code2 = currdata;
-     fit_compressed_integer_and_flush(code1, 3, pdata, bitptr, fout);
-     fit_compressed_integer_and_flush(code2, 32, pdata, bitptr, fout);
+     fit_compressed_integer_and_flush(code1, 3, pdata, bitptr, fout, NULL);
+     fit_compressed_integer_and_flush(code2, 32, pdata, bitptr, fout, fdbg);
      return true; //always returns true
 }
 
@@ -444,7 +455,7 @@ void dump_dictionary_to_output(FILE *fout) {
     }
 }
 
-void encodefn_dispatcher(FILE *fin, FILE *fout) {
+void encodefn_dispatcher(FILE *fin, FILE *fout, FILE *fdbg) {
  	char line[50];
  	uint32_t data=0, intd=0, i;
  	uint8_t bitptr = MAX_BITS;
@@ -465,7 +476,7 @@ void encodefn_dispatcher(FILE *fin, FILE *fout) {
             // Start compression beginning with least size
             handled = false;
             for(i=0; (i < EMAX) && (!handled); i++) {
-                handled = (*enc_fn_array[i])(data, &intd, &bitptr, fout);
+                handled = (*enc_fn_array[i])(data, &intd, &bitptr, fout, fdbg);
             }
         }
         else //Invalid 32-bit string
@@ -473,11 +484,11 @@ void encodefn_dispatcher(FILE *fin, FILE *fout) {
     }
 
     // Check if we need to flush RLE
-    rle_flush_before_exit(&intd, &bitptr, fout);
+    rle_flush_before_exit(&intd, &bitptr, fout, fdbg);
 
     // Flush any remaining bytes in intermediate write buffer
     if((bitptr > 0) && (bitptr < MAX_BITS)) {
-        fit_compressed_integer_and_flush(0, bitptr, &intd, &bitptr, fout);
+        fit_compressed_integer_and_flush(0, bitptr, &intd, &bitptr, fout, NULL);
     }
     if(dict_size > 0) {
         fprintf(fout, "%s\n", COMPRESSION_END_MARKER);
@@ -556,8 +567,14 @@ bool read_data_from_offset(FILE *fin, uint32_t *pdata, uint8_t *bitptr, uint8_t 
             endreached = true;
     }
     else {
-        /* First copy from bitptr-1 to end of curr data */
-        *dataread = ((*pdata) & (~(~0 << (*bitptr))));
+        if(*bitptr < MAX_BITS) {
+            /* First copy from bitptr-1 to end of curr data */
+            *dataread = ((*pdata) & (~(~0 << (*bitptr))));
+        }
+        else {
+            // read all
+            *dataread = *pdata;
+        }
         if(!readnextword(fin, pdata)) {
             *bitptr = MAX_BITS + shift;
         }
@@ -682,11 +699,13 @@ void decodefn_dispatcher(FILE *fin, FILE *fout) {
 int main(int argc, char *argv[]) {
 	FILE *fin = NULL;
 	FILE *fout = NULL;
+	FILE *fdbg = NULL;
 
     if((argc == 2) && !(strcmp("1", argv[1]))) {
         fin = fopen (uncompressedfile, "r");
         fout = fopen (coutfile, "w");
-        if ((NULL == fin) || (NULL == fout)){
+        fdbg = fopen (referencefile, "w");
+        if ((NULL == fin) || (NULL == fout) || (NULL == fdbg)){
             perror("Program encountered error exiting..\n");
             exit(1);
         }
@@ -697,7 +716,7 @@ int main(int argc, char *argv[]) {
         rewind(fin);
 
         // launch dispatcher
-        encodefn_dispatcher(fin, fout);
+        encodefn_dispatcher(fin, fout, fdbg);
     }
     else if ((argc == 2) && !(strcmp("2", argv[1]))) {
         // Decompression

@@ -50,8 +50,6 @@ struct code_param {
 
 const struct code_param codeparam[EMAX] = { {32, 0xFFFFFFFF},   {6, 0x3F},      {16, 0xFFFF},   {12, 0xFFF},
                                             {12, 0xFFF},        {12, 0xFFF},    {17, 0x1FFFF},  {7, 0x7F}  };
-// Compression constants
-//const uint32_t compParam[EMAX][2] = {{35,}}
 const char *nibble_bit_rep[16] = {
 	[ 0] = "0000", [ 1] = "0001", [ 2] = "0010", [ 3] = "0011",
 	[ 4] = "0100", [ 5] = "0101", [ 6] = "0110", [ 7] = "0111",
@@ -96,10 +94,6 @@ void addnode (struct node **freq_list, uint32_t val) {
     struct node *curr = *freq_list;
     struct node *newnode = NULL;
 
-    /*while(curr && curr->val != val) {
-        prev = curr;
-        curr = curr->next;
-    }*/
     for(;(curr != NULL) && (curr->val != val); curr = curr->next);
     if(curr != NULL) {
         curr->freq++;
@@ -704,8 +698,10 @@ int main(int argc, char *argv[]) {
     if((argc == 2) && !(strcmp("1", argv[1]))) {
         fin = fopen (uncompressedfile, "r");
         fout = fopen (coutfile, "w");
+#ifdef DEBUG
         fdbg = fopen (referencefile, "w");
-        if ((NULL == fin) || (NULL == fout) || (NULL == fdbg)){
+#endif
+        if ((NULL == fin) || (NULL == fout)){
             perror("Program encountered error exiting..\n");
             exit(1);
         }
@@ -731,12 +727,17 @@ int main(int argc, char *argv[]) {
         decodefn_dispatcher(fin, fout);
     }
     else
-        printf("Usage: ./SIM 1 to Compress and ./SIM 2 to decompress\n");
+        DPRINTF("Usage: ./SIM 1 to Compress and ./SIM 2 to decompress\n");
 
     if ((NULL != fin) && (NULL != fout)){
         fclose(fout);
         fclose(fin);
     }
+
+#if DEBUG
+    if(fdbg != NULL)
+        fclose(fdbg);
+#endif
 
     return 0;
 }
